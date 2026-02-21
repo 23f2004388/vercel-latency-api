@@ -40,7 +40,7 @@ def preflight():
     return JSONResponse({"ok": True}, headers=CORS_HEADERS)
 
 
-@app.post("/")
+@app.post("/api")
 async def metrics(req: Request):
     try:
         body = await req.json()
