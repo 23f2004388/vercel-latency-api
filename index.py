@@ -1,57 +1,51 @@
 import json
 import math
-from statistics import fmean
 from pathlib import Path
+from statistics import fmean
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Load telemetry.json from same folder
-DATA_PATH = Path(__file__).parent / "telemetry.json"
+# ✅ Proper CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+DATA_PATH = Path(__file__).resolve().parent.parent / "telemetry.json"
 
 
 def p95(values):
     if not values:
         return 0.0
-    values = sorted(values)
-    index = math.ceil(0.95 * len(values)) - 1
-    return values[index]
-
-
-@app.options("/")
-def preflight():
-    return JSONResponse(
-        {"ok": True},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        },
-    )
+    v = sorted(values)
+    k = math.ceil(0.95 * len(v)) - 1
+    return v[k]
 
 
 @app.post("/")
-async def metrics(request: Request):
-    body = await request.json()
-
-    regions = body.get("regions")
+async def metrics(req: Request):
+    body = await req.json()
+    regions = body.get("regions", [])
     threshold = body.get("threshold_ms")
 
     if not isinstance(regions, list) or not regions:
-        return JSONResponse({"error": "regions required"}, status_code=400)
+        return {"error": "regions required"}
 
     if not isinstance(threshold, (int, float)):
-        return JSONResponse({"error": "threshold_ms required"}, status_code=400)
+        return {"error": "threshold_ms required"}
 
-    with open(DATA_PATH) as f:
+    with DATA_PATH.open() as f:
         data = json.load(f)
 
     results = []
 
     for region in regions:
         rows = [r for r in data if r["region"] == region]
-
         latencies = [r["latency_ms"] for r in rows]
         uptimes = [r["uptime_pct"] for r in rows]
 
@@ -63,11 +57,4 @@ async def metrics(request: Request):
             "breaches": sum(1 for x in latencies if x > threshold)
         })
 
-    return JSONResponse(
-        {"regions": results},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        },
-    )
+    return {"regions": results}
