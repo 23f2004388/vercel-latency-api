@@ -2,63 +2,57 @@ import json
 import math
 from pathlib import Path
 from statistics import fmean
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from typing import List, Optional
+
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# CORS for POST from any origin (and OPTIONS preflight)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 DATA_PATH = Path(__file__).resolve().parent.parent / "telemetry.json"
 
-def p95(values):
+def p95(values: List[float]) -> float:
     if not values:
         return 0.0
     v = sorted(values)
     k = math.ceil(0.95 * len(v)) - 1
-    return v[k]
+    return float(v[k])
 
-@app.options("/")
-def preflight():
-    return JSONResponse(
-        {"ok": True},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        },
-    )
-
-@app.post("/")
-async def metrics(req: Request):
-    body = await req.json()
-    regions = body.get("regions", [])
-    threshold = body.get("threshold_ms")
+@app.post("/api")
+async def metrics(payload: dict):
+    regions = payload.get("regions", [])
+    threshold = payload.get("threshold_ms")
 
     if not isinstance(regions, list) or not regions:
-        return JSONResponse({"error": "regions required"}, status_code=400)
+        return {"error": "regions required"}
     if not isinstance(threshold, (int, float)):
-        return JSONResponse({"error": "threshold_ms required"}, status_code=400)
+        return {"error": "threshold_ms required"}
 
-    with DATA_PATH.open() as f:
+    with DATA_PATH.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
     results = []
     for region in regions:
-        rows = [r for r in data if r["region"] == region]
-        latencies = [r["latency_ms"] for r in rows]
-        uptimes = [r["uptime_pct"] for r in rows]
+        rows = [r for r in data if r.get("region") == region]
+        latencies = [float(r.get("latency_ms", 0.0)) for r in rows]
+        uptimes = [float(r.get("uptime_pct", 0.0)) for r in rows]
 
-        results.append({
-            "region": region,
-            "avg_latency": fmean(latencies) if latencies else 0.0,
-            "p95_latency": p95(latencies),
-            "avg_uptime": fmean(uptimes) if uptimes else 0.0,
-            "breaches": sum(1 for x in latencies if x > threshold)
-        })
+        results.append(
+            {
+                "region": region,
+                "avg_latency": float(fmean(latencies)) if latencies else 0.0,
+                "p95_latency": p95(latencies),
+                "avg_uptime": float(fmean(uptimes)) if uptimes else 0.0,
+                "breaches": int(sum(1 for x in latencies if x > threshold)),
+            }
+        )
 
-    return JSONResponse(
-        {"regions": results},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        },
-    )
+    return {"regions": results}
