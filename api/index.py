@@ -9,7 +9,6 @@ CORS_HEADERS = {
     "Access-Control-Allow-Headers": "Content-Type",
 }
 
-# Load telemetry.json from repo root
 ROOT = os.path.dirname(os.path.dirname(__file__))  # repo root
 DATA_PATH = os.path.join(ROOT, "telemetry.json")
 
@@ -24,17 +23,7 @@ def p95(values):
     return s[idx]
 
 class handler(BaseHTTPRequestHandler):
-    def _send(self, status, body_dict=None):
-        self.send_response(status)
-        for k, v in CORS_HEADERS.items():
-            self.send_header(k, v)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        if body_dict is not None:
-            self.wfile.write(json.dumps(body_dict).encode("utf-8"))
-
     def do_OPTIONS(self):
-        # Preflight
         self.send_response(204)
         for k, v in CORS_HEADERS.items():
             self.send_header(k, v)
@@ -52,7 +41,6 @@ class handler(BaseHTTPRequestHandler):
             out = {}
             for r in regions:
                 rows = [x for x in TELEMETRY if x.get("region") == r]
-
                 lat = [x.get("latency_ms", 0) for x in rows]
                 upt = [x.get("uptime", x.get("uptime_ratio", 0)) for x in rows]
 
@@ -63,7 +51,17 @@ class handler(BaseHTTPRequestHandler):
                     "breaches": sum(1 for v in lat if v > threshold_ms),
                 }
 
-            self._send(200, out)
+            self.send_response(200)
+            for k, v in CORS_HEADERS.items():
+                self.send_header(k, v)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(out).encode("utf-8"))
 
         except Exception as e:
-            self._send(500, {"error": str(e)})
+            self.send_response(500)
+            for k, v in CORS_HEADERS.items():
+                self.send_header(k, v)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
